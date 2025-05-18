@@ -38,11 +38,17 @@ public class RayInteractorSphereSpawner : MonoBehaviour
     private bool wasPressed = false;
     private bool wasPrimaryPressed = false;
     private bool wasSecondaryPressed = false;
-    private bool wasGripPressed = false;
-    private bool wasThumbstickPressed = false;
 
-    private Dictionary<Mesh, Color[]> originalColorDict = new Dictionary<Mesh, Color[]>();
-    private Dictionary<Mesh, GameObject> currentlyColoredMeshes = new Dictionary<Mesh, GameObject>();
+    //private Dictionary<Mesh, Mesh> originalMeshDict = new Dictionary<Mesh, Mesh>();
+    //private Dictionary<Mesh, Color[]> originalColorDict = new Dictionary<Mesh, Color[]>();
+    //private Dictionary<Mesh, GameObject> currentlyColoredMeshes = new Dictionary<Mesh, GameObject>();
+    //// Store vertex color index masks (-1 = unlabeled, otherwise = index in colorOptions)
+    //private Dictionary<Mesh, int[]> vertexColorIndexMasks = new Dictionary<Mesh, int[]>();
+
+    private Dictionary<GameObject, Mesh> originalMeshDict = new Dictionary<GameObject, Mesh>();
+    private Dictionary<GameObject, Color[]> originalColorDict = new Dictionary<GameObject, Color[]>();
+    private Dictionary<GameObject, int[]> vertexColorIndexMasks = new Dictionary<GameObject, int[]>();
+    private HashSet<GameObject> currentlyColoredObjects = new HashSet<GameObject>();
 
     private void Awake()
     {
@@ -118,41 +124,65 @@ public class RayInteractorSphereSpawner : MonoBehaviour
         if (rayInteractor.TryGetCurrent3DRaycastHit(out RaycastHit hit))
         {
             // Get the mesh from the hit object
-            MeshFilter meshFilter = hit.collider.GetComponent<MeshFilter>();
+            //MeshFilter meshFilter = hit.collider.GetComponent<MeshFilter>();
+            GameObject hitObject = hit.collider.gameObject;
+            MeshFilter meshFilter = hitObject.GetComponent<MeshFilter>();
             if (meshFilter != null && meshFilter.mesh != null)
             {
-                // Reset colors on previously colored meshes if needed
-                if (resetColorsOnNewSelection)
-                {
-                    RestoreAllOriginalColors();
-                }
-
                 Mesh mesh = meshFilter.mesh;
                 Transform hitTransform = hit.collider.transform;
 
-                // Make the mesh readable and writable at runtime
-                Mesh instancedMesh = Instantiate(mesh);
-                meshFilter.mesh = instancedMesh;
-                mesh = instancedMesh;
-
-                // Store and initialize vertex colors if needed
-                if (!originalColorDict.ContainsKey(mesh))
+                // If this is our first time interacting with this object
+                if (!currentlyColoredObjects.Contains(hitObject))
                 {
-                    StoreOriginalColors(mesh);
+                    // Store the original for later restoration
+                    originalMeshDict[hitObject] = mesh;
+
+
+                    // Create a working copy we'll modify
+                    Mesh workingCopy = Instantiate(mesh);
+
+                    // Replace the mesh filter's mesh with our working copy
+                    meshFilter.mesh = workingCopy;
+
+                    // Update our reference to the mesh we'll be modifying
+                    mesh = workingCopy;
+
+                    // Initialize colors if needed
+                    if (mesh.colors == null || mesh.colors.Length == 0)
+                    {
+                        Color[] initcolors = new Color[mesh.vertexCount];
+                        for (int i = 0; i < initcolors.Length; i++)
+                        {
+                            initcolors[i] = Color.white;
+                        }
+                        mesh.colors = initcolors;
+                    }
+
+                    // Initialize the vertex mask
+                    int[] initvertexMask = new int[mesh.vertexCount];
+                    for (int i = 0; i < initvertexMask.Length; i++)
+                    {
+                        initvertexMask[i] = -1; // -1 indicates unlabeled
+                    }
+                    vertexColorIndexMasks[hitObject] = initvertexMask;
+
+                    // Track this mesh as currently being colored
+                    currentlyColoredObjects.Add(hitObject);
+                }
+
+                // Reset colors on previously colored meshes if needed
+                if (resetColorsOnNewSelection && currentlyColoredObjects.Count > 0)
+                {
+                    RestoreAllOriginalColors();
+                    // Restart the coloring process
+                    ColorClosestVertexAtRaycastHit();
+                    return;
                 }
 
                 Vector3[] vertices = mesh.vertices;
                 Color[] colors = mesh.colors;
-
-                // If the mesh doesn't have colors yet, create them
-                if (colors == null || colors.Length == 0)
-                {
-                    colors = new Color[vertices.Length];
-                    for (int i = 0; i < colors.Length; i++)
-                    {
-                        colors[i] = Color.white;
-                    }
-                }
+                int[] vertexMask = vertexColorIndexMasks[hitObject];
 
                 // Find the closest vertex
                 float closestDistance = float.MaxValue;
@@ -176,18 +206,18 @@ public class RayInteractorSphereSpawner : MonoBehaviour
 
                 // Get the current selected color
                 Color selectedColor = colorOptions[currentColorIndex].color;
+                string colorName = colorOptions[currentColorIndex].name;
+                int labelIndex = currentColorIndex;
+
                 if (secondaryButtonAction.action.ReadValue<float>() > 0.5f)
                 {
                     selectedColor = backgroundColor;
+                    colorName = "background";
+                    labelIndex = -1;
                 }
 
                 if (closestVertexIndex >= 0)
                 {
-                    
-
-                    // Track this mesh as currently colored
-                    currentlyColoredMeshes[mesh] = hit.collider.gameObject;
-
                     if (colorMultipleVertices)
                     {
                         // Color the closest vertex and nearby vertices based on radius
@@ -199,6 +229,7 @@ public class RayInteractorSphereSpawner : MonoBehaviour
                             if (localDistance <= vertexColorRadius)
                             {
                                 colors[i] = selectedColor;
+                                vertexMask[i] = labelIndex;
                             }
                         }
                     }
@@ -206,12 +237,13 @@ public class RayInteractorSphereSpawner : MonoBehaviour
                     {
                         // Just color the single closest vertex
                         colors[closestVertexIndex] = selectedColor;
+                        vertexMask[closestVertexIndex] = labelIndex;
                     }
 
                     // Apply the updated colors
                     mesh.colors = colors;
 
-                    Debug.Log($"Vertex colored with {colorOptions[currentColorIndex].name} at index: {closestVertexIndex}");
+                    Debug.Log($"Vertex colored with {colorName} at index: {closestVertexIndex}");
                 }
                 else
                 {
@@ -225,52 +257,81 @@ public class RayInteractorSphereSpawner : MonoBehaviour
         }
     }
 
-    private void StoreOriginalColors(Mesh mesh)
+    private void RestoreOriginalColors(GameObject obj)
     {
-        // Store original vertex colors for later restoration
-        Color[] originalColors;
-
-        if (mesh.colors != null && mesh.colors.Length > 0)
+        if (originalMeshDict.TryGetValue(obj, out Mesh originalMesh))
         {
-            originalColors = mesh.colors;
-        }
-        else
-        {
-            // If no colors existed, create default white colors
-            originalColors = new Color[mesh.vertexCount];
-            for (int i = 0; i < originalColors.Length; i++)
+            // Get the mesh filter
+            MeshFilter meshFilter = obj.GetComponent<MeshFilter>();
+            if (meshFilter != null)
             {
-                originalColors[i] = Color.white;
+                // Restore the original mesh
+                meshFilter.mesh = originalMesh;
+
+                // Clean up dictionaries
+                originalMeshDict.Remove(obj);
+                originalColorDict.Remove(obj);
+                vertexColorIndexMasks.Remove(obj);
+                currentlyColoredObjects.Remove(obj);
             }
-        }
-
-        originalColorDict[mesh] = originalColors;
-    }
-
-    private void RestoreOriginalColors(Mesh mesh)
-    {
-        if (originalColorDict.TryGetValue(mesh, out Color[] originalColors))
-        {
-            mesh.colors = originalColors;
-            originalColorDict.Remove(mesh);
         }
     }
 
     private void RestoreAllOriginalColors()
     {
-        foreach (var entry in currentlyColoredMeshes)
+        // Create a copy of the list to avoid modification during iteration
+        List<GameObject> objectsToRestore = new List<GameObject>(currentlyColoredObjects);
+
+        foreach (GameObject obj in objectsToRestore)
         {
-            if (entry.Key != null)
-            {
-                RestoreOriginalColors(entry.Key);
-            }
+            RestoreOriginalColors(obj);
         }
-        currentlyColoredMeshes.Clear();
+
+        // Make sure all collections are cleared
+        originalMeshDict.Clear();
+        originalColorDict.Clear();
+        vertexColorIndexMasks.Clear();
+        currentlyColoredObjects.Clear();
     }
 
     private void OnDestroy()
     {
         // Clean up and restore colors
         RestoreAllOriginalColors();
+    }
+
+    // Get the vertex mask for a GameObject
+    public int[] GetVertexMask(GameObject obj)
+    {
+        if (vertexColorIndexMasks.TryGetValue(obj, out int[] mask))
+        {
+            // Return a copy to prevent external modification
+            int[] maskCopy = new int[mask.Length];
+            System.Array.Copy(mask, maskCopy, mask.Length);
+            return maskCopy;
+        }
+        return null;
+    }
+
+    // Get the original mesh for a GameObject
+    public Mesh GetOriginalMesh(GameObject obj)
+    {
+        if (originalMeshDict.TryGetValue(obj, out Mesh originalMesh))
+        {
+            return originalMesh;
+        }
+        return null;
+    }
+
+    // Get the color options list
+    public List<ColorOption> GetColorOptions()
+    {
+        return new List<ColorOption>(colorOptions);
+    }
+
+    public void SetNewMesh(GameObject obj, Mesh mesh)
+    {
+        MeshFilter meshFilter = obj.GetComponent<MeshFilter>();
+        meshFilter.mesh = mesh;
     }
 }
