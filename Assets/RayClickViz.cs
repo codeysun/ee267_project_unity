@@ -14,8 +14,7 @@ public class RayInteractorSphereSpawner : MonoBehaviour
     [Header("Button Controls for Color Selection")]
     [SerializeField] private InputActionProperty primaryButtonAction; // Usually 'A' or 'X' button
     [SerializeField] private InputActionProperty secondaryButtonAction; // Usually 'B' or 'Y' button
-    [SerializeField] private InputActionProperty gripButtonAction; // Controller grip
-    [SerializeField] private InputActionProperty thumbstickButtonAction; // Pressing thumbstick
+    [SerializeField] private InputActionProperty thumbstickAction;
 
     [Header("Vertex Coloring")]
     [SerializeField] private float maxVertexSearchDistance = 0.5f;
@@ -37,7 +36,8 @@ public class RayInteractorSphereSpawner : MonoBehaviour
 
     private bool wasPressed = false;
     private bool wasPrimaryPressed = false;
-    private bool wasSecondaryPressed = false;
+    //private bool wasSecondaryPressed = false;
+    private bool wasThumbstickPressed = false;
 
     //private Dictionary<Mesh, Mesh> originalMeshDict = new Dictionary<Mesh, Mesh>();
     //private Dictionary<Mesh, Color[]> originalColorDict = new Dictionary<Mesh, Color[]>();
@@ -50,6 +50,13 @@ public class RayInteractorSphereSpawner : MonoBehaviour
     private Dictionary<GameObject, int[]> vertexColorIndexMasks = new Dictionary<GameObject, int[]>();
     private HashSet<GameObject> currentlyColoredObjects = new HashSet<GameObject>();
 
+    public void Reset()
+    {
+        originalMeshDict.Clear();
+        originalColorDict.Clear();
+        vertexColorIndexMasks.Clear();
+        currentlyColoredObjects.Clear();
+    }
     private void Awake()
     {
         // If no ray interactor assigned, try to get it from this GameObject
@@ -78,6 +85,7 @@ public class RayInteractorSphereSpawner : MonoBehaviour
 
         primaryButtonAction.action.Enable();
         secondaryButtonAction.action.Enable();
+        thumbstickAction.action.Enable();
     }
 
     private void OnDisable()
@@ -86,12 +94,16 @@ public class RayInteractorSphereSpawner : MonoBehaviour
 
         primaryButtonAction.action.Disable();
         secondaryButtonAction.action.Disable();
+        thumbstickAction.action.Disable();
     }
 
     private void Update()
     {
         // Handle color selection
         HandleColorSelection();
+
+        // Handle next/prev scene
+        HandleSceneSelection();
 
         // Handle vertex coloring
         bool isPressed = triggerAction.action.ReadValue<float>() > 0.5f;
@@ -101,6 +113,21 @@ public class RayInteractorSphereSpawner : MonoBehaviour
         }
         wasPressed = isPressed;
     }
+
+    private void HandleSceneSelection()
+    {
+        if (thumbstickAction.action != null)
+        {
+            bool isThumbstickPressed = thumbstickAction.action.ReadValue<float>() > 0.5f;
+            if (isThumbstickPressed && !wasThumbstickPressed)
+            {
+                ControlMessages.SendThumbstickPressed(isThumbstickPressed);
+                Debug.Log($"Next scene clicked");
+            }
+            wasThumbstickPressed = isThumbstickPressed;
+        }
+    }
+
 
     private void HandleColorSelection()
     {

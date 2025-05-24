@@ -13,10 +13,10 @@ public class BinPLYMeshLoader : MonoBehaviour
 {
     void Start()
     {
-        LoadPLY("C:\\Users\\Codey\\ee267 project\\Assets\\scan.ply");
+        //LoadPLY("C:\\Users\\Codey\\ee267 project\\Assets\\scan.ply");
     }
 
-    void LoadPLY(string path)
+    public void LoadPLY(string path)
     {
         if (!File.Exists(path))
         {
