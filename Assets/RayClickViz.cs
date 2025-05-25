@@ -191,11 +191,12 @@ public class RayInteractorSphereSpawner : MonoBehaviour
             GameObject hitObject = currentlyColoredObjects.First();
             MeshFilter meshFilter = hitObject.GetComponent<MeshFilter>();
             Mesh mesh = meshFilter.mesh;
+            Mesh originalMesh = originalMeshDict[hitObject];
 
             int[] vertexMask = vertexColorIndexMasks[hitObject];
 
             // Color the mesh
-            Color[] colors = mesh.colors;
+            Color[] colors = originalMesh.colors;
 
             for (int i = 0; i < colors.Length; i++)
             {
