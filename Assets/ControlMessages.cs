@@ -11,10 +11,29 @@ public static class ControlMessages
     //public static event Action<bool> OnTriggerRightPressed;
     public static event Action<bool> OnThumbstickPressed;
 
+    public static event Action<int, int> OnVertexInteraction;
+    public static event Action<int, int, int[]> OnMaskChunkReceived;
+    public static event Action OnMaskProcessingComplete;
+
     // Methods to trigger the events
     public static void SendThumbstickPressed(bool isPressed)
     {
         OnThumbstickPressed?.Invoke(isPressed);
+    }
+
+    public static void SendVertexInteraction(int vertexIndex, int labelIndex)
+    {
+        OnVertexInteraction?.Invoke(vertexIndex, labelIndex);
+    }
+
+    public static void SendMaskChunk(int startIndex, int endIndex, int[] maskData)
+    {
+        OnMaskChunkReceived?.Invoke(startIndex, endIndex, maskData);
+    }
+
+    public static void SendMaskProcessingComplete()
+    {
+        OnMaskProcessingComplete?.Invoke();
     }
 
     //public static void SendThumbstickRightMovement(Vector2 direction)

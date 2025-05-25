@@ -17,7 +17,13 @@ public class Connection : MonoBehaviour
     [SerializeField] private BinPLYMeshLoader meshLoader;
     [SerializeField] private RayInteractorSphereSpawner rayClicker;
     [SerializeField] private MaskBasedSubmeshDetacher meshDetacher;
-    
+
+    // Mask chunk handling
+    private Dictionary<int, byte[]> maskChunks = new Dictionary<int, byte[]>();
+    private int totalExpectedChunks = 0;
+    private bool receivingMaskChunks = false;
+    private float lastChunkTime;
+    private float chunkTimeout = 30f; // 30 seconds timeout
 
     // Start is called before the first frame update
     async void Start()
@@ -51,6 +57,7 @@ public class Connection : MonoBehaviour
         };
 
         ControlMessages.OnThumbstickPressed += SendNextScene;
+        ControlMessages.OnVertexInteraction += SendPointClick;
 
 
         // waiting for messages
@@ -83,8 +90,20 @@ public class Connection : MonoBehaviour
                     HandleLoadSceneMessage(messageObj);
                     break;
 
-                case "mask":
-                    // TODO
+                case "segmentation_complete":
+                    Debug.Log("Segmentation completed");
+                    break;
+
+                case "update_mask_chunk":
+                    HandleMaskChunk(messageObj);
+                    break;
+
+                case "click_feedback":
+                    Debug.Log("Click received");
+                    break;
+
+                case "error":
+                    Debug.LogWarning($"Server error: {messageObj["message"]}");
                     break;
 
 
@@ -112,6 +131,31 @@ public class Connection : MonoBehaviour
         if (websocket.State == WebSocketState.Open)
         {
             Debug.Log($"Sending next_scene message");
+            await websocket.SendText(jsonResponse);
+        }
+        else
+        {
+            Debug.LogWarning("WebSocket is not open, cannot send scene_loaded response");
+        }
+    }
+
+    private async void SendPointClick(int vertexIndex, int labelIndex)
+    {
+        string click_type = labelIndex == -1 ? "background" : "object";
+        var responseMessage = new
+        {
+            type = "click",
+            click_type = click_type,
+            point_index = vertexIndex,
+            object_id = labelIndex+1
+        };
+
+        // Convert to JSON
+        string jsonResponse = JsonConvert.SerializeObject(responseMessage);
+        // Send the response if the websocket is open
+        if (websocket.State == WebSocketState.Open)
+        {
+            Debug.Log($"Sending click message");
             await websocket.SendText(jsonResponse);
         }
         else
@@ -191,11 +235,86 @@ public class Connection : MonoBehaviour
         }
     }
 
+    private async Task HandleMaskChunk(JObject data)
+    {
+        try
+        {
+            int chunkIndex = data["chunk_index"].ToObject<int>();
+            int totalChunks = data["total_chunks"].ToObject<int>();
+            int startIndex = data["start_index"].ToObject<int>();
+            int endIndex = data["end_index"].ToObject<int>();
+            string encodedData = data["data"].ToString();
+            bool isCompressed = data["compressed"].ToObject<bool>();
+
+            // Update last chunk time
+            lastChunkTime = Time.time;
+
+            // If this is the first chunk, initialize tracking
+            if (chunkIndex == 0)
+            {
+                maskChunks.Clear();
+                totalExpectedChunks = totalChunks;
+                receivingMaskChunks = true;
+                Debug.Log($"Starting to receive mask in {totalChunks} chunks");
+            }
+
+            byte[] chunkData = Convert.FromBase64String(encodedData);
+
+            // Store the chunk
+            maskChunks[chunkIndex] = chunkData;
+
+            // Convert bytes to int array based on the data format
+            int[] maskData = ConvertBytesToMaskData(chunkData);
+
+            // Send this chunk to listeners
+            ControlMessages.SendMaskChunk(startIndex, endIndex, maskData);
+
+            // Log progress
+            Debug.Log($"Processed mask chunk {chunkIndex + 1}/{totalChunks} " +
+                      $"({startIndex}-{endIndex}, {maskData.Length} values)");
+
+            // Check if we have all chunks
+            if (maskChunks.Count == totalExpectedChunks)
+            {
+                Debug.Log("All mask chunks received");
+                ControlMessages.SendMaskProcessingComplete();
+                maskChunks.Clear();
+                receivingMaskChunks = false;
+            }
+
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error handling update_mask_chunk message: {e.Message}");
+        }
+    }
+
+    private int[] ConvertBytesToMaskData(byte[] bytes)
+    {
+        // Handle the case where data is sent as np.uint8
+        // Each value is a single byte (0-255)
+        int[] result = new int[bytes.Length];
+
+        for (int i = 0; i < bytes.Length; i++)
+        {
+            result[i] = (int)bytes[i];
+        }
+
+        return result;
+    }
+
     void Update()
     {
 #if !UNITY_WEBGL || UNITY_EDITOR
         websocket.DispatchMessageQueue();
 #endif
+        // Check for timeout on mask chunks
+        if (receivingMaskChunks && Time.time - lastChunkTime > chunkTimeout)
+        {
+            Debug.LogWarning("Mask chunk reception timed out");
+            maskChunks.Clear();
+            receivingMaskChunks = false;
+        }
     }
 
     async void SendWebSocketMessage()

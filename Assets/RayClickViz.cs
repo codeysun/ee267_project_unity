@@ -1,9 +1,11 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.XR.Interaction.Toolkit;
 using UnityEngine.XR.Interaction.Toolkit.Interactors;
+using static UnityEngine.Mesh;
 
 public class RayInteractorSphereSpawner : MonoBehaviour
 {
@@ -49,6 +51,7 @@ public class RayInteractorSphereSpawner : MonoBehaviour
     private Dictionary<GameObject, Color[]> originalColorDict = new Dictionary<GameObject, Color[]>();
     private Dictionary<GameObject, int[]> vertexColorIndexMasks = new Dictionary<GameObject, int[]>();
     private HashSet<GameObject> currentlyColoredObjects = new HashSet<GameObject>();
+    private Mesh currentMesh = null;
 
     public void Reset()
     {
@@ -56,6 +59,7 @@ public class RayInteractorSphereSpawner : MonoBehaviour
         originalColorDict.Clear();
         vertexColorIndexMasks.Clear();
         currentlyColoredObjects.Clear();
+        currentMesh = null;
     }
     private void Awake()
     {
@@ -86,6 +90,9 @@ public class RayInteractorSphereSpawner : MonoBehaviour
         primaryButtonAction.action.Enable();
         secondaryButtonAction.action.Enable();
         thumbstickAction.action.Enable();
+
+        ControlMessages.OnMaskChunkReceived += ColorMeshMaskChunk;
+        ControlMessages.OnMaskProcessingComplete += OnMaskProcessingComplete;
     }
 
     private void OnDisable()
@@ -95,6 +102,8 @@ public class RayInteractorSphereSpawner : MonoBehaviour
         primaryButtonAction.action.Disable();
         secondaryButtonAction.action.Disable();
         thumbstickAction.action.Disable();
+        ControlMessages.OnMaskChunkReceived -= ColorMeshMaskChunk;
+        ControlMessages.OnMaskProcessingComplete -= OnMaskProcessingComplete;
     }
 
     private void Update()
@@ -145,6 +154,61 @@ public class RayInteractorSphereSpawner : MonoBehaviour
 
     }
 
+    private void ColorMeshMaskChunk(int startIndex, int endIndex, int[] maskChunkData)
+    {
+        if (currentlyColoredObjects.Count == 0)
+        {
+            Debug.LogWarning("No mesh to color");
+            return;
+        }
+        GameObject hitObject = currentlyColoredObjects.First();
+        MeshFilter meshFilter = hitObject.GetComponent<MeshFilter>();
+        Mesh mesh = meshFilter.mesh;
+
+        // TODO: update vertexColorIndexMasks
+        int chunkOffset = 0;
+        for (int i = startIndex; i < endIndex && i < vertexColorIndexMasks[hitObject].Length; i++)
+        {
+            if (chunkOffset < maskChunkData.Length)
+            {
+                int labelValue = maskChunkData[chunkOffset++];
+                vertexColorIndexMasks[hitObject][i] = labelValue-1;
+            }
+        }
+
+        Debug.Log("Mask chunk received");
+    }
+
+    // Called when all chunks have been processed
+    private void OnMaskProcessingComplete()
+    {
+        Debug.Log("All mask chunks have been processed");
+
+        // Additional finalization if needed
+        if (currentlyColoredObjects.Count > 0)
+        {
+            GameObject hitObject = currentlyColoredObjects.First();
+            MeshFilter meshFilter = hitObject.GetComponent<MeshFilter>();
+            Mesh mesh = meshFilter.mesh;
+
+            int[] vertexMask = vertexColorIndexMasks[hitObject];
+
+            // Color the mesh
+            Color[] colors = mesh.colors;
+
+            for (int i = 0; i < colors.Length; i++)
+            {
+                if (vertexMask[i] >= 0)
+                {
+                    colors[i] = colorOptions[vertexMask[i]].color;
+                }                
+            }
+
+            mesh.colors = colors;
+        }
+
+        Debug.Log($"AGILE3D mask received and colored");
+    }
     private void ColorClosestVertexAtRaycastHit()
     {
         // Check if ray hits anything
@@ -245,6 +309,12 @@ public class RayInteractorSphereSpawner : MonoBehaviour
 
                 if (closestVertexIndex >= 0)
                 {
+                    // Send click info to websocket
+                    ControlMessages.SendVertexInteraction(
+                        closestVertexIndex,
+                        labelIndex
+                    );
+
                     if (colorMultipleVertices)
                     {
                         // Color the closest vertex and nearby vertices based on radius

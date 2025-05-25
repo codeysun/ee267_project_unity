@@ -932,7 +932,7 @@ MonoBehaviour:
     m_Reference: {fileID: 1604698874227653719, guid: c348712bda248c246b8c49b3db54643f, type: 3}
   maxVertexSearchDistance: 0.5
   vertexColorRadius: 0.5
-  colorMultipleVertices: 1
+  colorMultipleVertices: 0
   resetColorsOnNewSelection: 0
   colorOptions: []
   currentColorIndex: 0
