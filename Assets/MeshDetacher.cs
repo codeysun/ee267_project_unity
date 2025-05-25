@@ -15,7 +15,7 @@ public class MaskBasedSubmeshDetacher : MonoBehaviour
 
     [Header("Detached Mesh Settings")]
     [SerializeField] private Material detachedMeshMaterial;
-    [SerializeField] private float meshOffset = 0.05f; // How far to offset detached meshes
+    [SerializeField] private float meshOffset = 0.0f; // How far to offset detached meshes
     [SerializeField] private bool makeInteractable = true;
     [SerializeField] private bool useOriginalColors = true;
 

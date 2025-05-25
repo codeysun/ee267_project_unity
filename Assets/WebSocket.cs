@@ -201,7 +201,7 @@ public class Connection : MonoBehaviour
 
             if (meshLoader != null)
             {
-                string filePath = $"C:\\Users\\Codey\\ee267 project\\Assets\\Meshes\\scene_{sceneName}\\scan.ply";
+                string filePath = $"Assets\\Meshes\\scene_{sceneName}\\scan.ply";
                 meshLoader.LoadPLY(filePath);
             }
             else

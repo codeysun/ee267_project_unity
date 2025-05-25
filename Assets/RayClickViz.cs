@@ -55,6 +55,7 @@ public class RayInteractorSphereSpawner : MonoBehaviour
 
     public void Reset()
     {
+        currentColorIndex = 0;
         originalMeshDict.Clear();
         originalColorDict.Clear();
         vertexColorIndexMasks.Clear();

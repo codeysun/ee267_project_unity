@@ -13,7 +13,6 @@ public class BinPLYMeshLoader : MonoBehaviour
 {
     void Start()
     {
-        //LoadPLY("C:\\Users\\Codey\\ee267 project\\Assets\\scan.ply");
     }
 
     public void LoadPLY(string path)
